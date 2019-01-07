@@ -766,11 +766,19 @@ class PFrepoModelDirectory extends JModelAdmin
             return false;
         }
 
-        // Add to watch list
+        // Add to watch list - if not opt-out
         if ($is_new) {
-            $cid = array($table->id);
+            $plugin  = JPluginHelper::getPlugin('content', 'pfnotifications');
+            $params  = new JRegistry($plugin->params);
+            $opt_out = (int) $params->get('sub_method', 0);
 
-            $this->watch($cid, 1);
+            if (!$opt_out) {
+                $cid = array($table->id);
+
+                if (!$this->watch($cid, 1)) {
+                    return false;
+                }
+            }
         }
 
         // Trigger the onContentAfterSave event.
@@ -780,11 +788,13 @@ class PFrepoModelDirectory extends JModelAdmin
         if (isset($data['labels'])) {
             $labels = $this->getInstance('Labels', 'PFModel', $config = array());
 
+            $labels->getState('item.project');
             $labels->setState('item.project', $table->project_id);
-            $labels->setState('item.type', 'com_pfrepo.directory');
             $labels->setState('item.id', $table->id);
 
-            $labels->saveRefs($data['labels']);
+            if (!$labels->saveRefs($data['labels'],'com_pfrepo.directory')) {
+                return false;
+            }
         }
 
         // Rebuild the path for the directory
@@ -932,6 +942,9 @@ class PFrepoModelDirectory extends JModelAdmin
                 }
             }
 
+            $basepath = PFrepoHelper::getBasePath();
+            $cmp_path = JPath::clean($basepath . '/');
+
             // Delete all sub-dirs
             if (count($sub_dirs)) {
                 foreach ($sub_dirs AS $sub_dir)
@@ -948,10 +961,12 @@ class PFrepoModelDirectory extends JModelAdmin
                     }
 
                     // Delete physical path if exists
-                    $basepath = PFrepoHelper::getBasePath();
+
                     $fullpath = JPath::clean($basepath . '/' . $sub_table->path);
 
-                    if (JFolder::exists($fullpath)) JFolder::delete($fullpath);
+                    if (JFolder::exists($fullpath) && $fullpath != $cmp_path && strpos($fullpath, $cmp_path) === 0) {
+                        JFolder::delete($fullpath);
+                    }
                 }
             }
 
@@ -962,10 +977,11 @@ class PFrepoModelDirectory extends JModelAdmin
             }
 
             // Delete physical path if exists
-            $basepath = PFrepoHelper::getBasePath();
             $fullpath = JPath::clean($basepath . '/' . $table->path);
 
-            if (JFolder::exists($fullpath)) JFolder::delete($fullpath);
+            if (JFolder::exists($fullpath) && $fullpath != $cmp_path && strpos($fullpath, $cmp_path) === 0) {
+                JFolder::delete($fullpath);
+            }
 
             // Trigger the onContentAfterDelete event.
             $dispatcher->trigger($this->event_after_delete, array($context, $table));
@@ -1084,8 +1100,13 @@ class PFrepoModelDirectory extends JModelAdmin
     {
         if (!$project) return false;
 
+        if (trim($path) == '') {
+            return false;
+        }
+
         $base        = PFrepoHelper::getBasePath();
         $path_exists = JFolder::exists($base . '/' . $path);
+
 
         // Create new directory?
         if (empty($dest)) {

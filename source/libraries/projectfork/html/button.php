@@ -16,17 +16,52 @@ abstract class PFhtmlButton
     public static function watch($type, $i, $state = 0, $options = array())
     {
         static $enabled = null;
+        static $opt_out = null;
 
         if (is_null($enabled)) {
             $enabled = JPluginHelper::isEnabled('content', 'pfnotifications');
+
+            if ($enabled) {
+                // Check the plugin access level
+                $user = JFactory::getUser();
+
+                if (!$user->authorise('core.admin') && !$user->authorise('core.manage')) {
+                    $db = JFactory::getDbo();
+                    $query = $db->getQuery(true);
+
+                    $query->select('access')
+                          ->from('#__extensions')
+                          ->where('type = ' . $db->quote('plugin'))
+                          ->where('element = ' . $db->quote('pfnotifications'))
+                          ->where('folder = ' . $db->quote('content'));
+
+                    $db->setQuery($query);
+                    $plg_access = (int) $db->loadResult();
+                    $levels     = $user->getAuthorisedViewLevels();
+                    $enabled    = in_array($plg_access, $levels);
+                }
+            }
         }
 
         if (!$enabled) return '';
 
+        if (is_null($opt_out)) {
+            $plugin  = JPluginHelper::getPlugin('content', 'pfnotifications');
+            $params  = new JRegistry($plugin->params);
+            $opt_out = (int) $params->get('sub_method', 0);
+        }
+
+        if ($opt_out) {
+            $class = ($state == 1 ? '' : ' btn-success active');
+        }
+        else {
+            $class = ($state == 1 ? ' btn-success active' : '');
+        }
+
         $html      = array();
         $div_class = (isset($options['div-class']) ? ' ' . $options['div-class'] : '');
         $a_class   = (isset($options['a-class'])   ? ' ' . $options['a-class'] : '');
-        $class     = ($state == 1 ? ' btn-success active' : '');
+
         $new_state = ($state == 1 ? 0 : 1);
         $aid       = 'watch-btn-' . $type . '-' . $i;
         $title     = addslashes(JText::_('COM_PROJECTFORK_ACTION_WATCH_DESC'));

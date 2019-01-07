@@ -4,7 +4,7 @@
  * @subpackage   com_pftasks
  *
  * @author       Tobias Kuhn (eaxs)
- * @copyright    Copyright (C) 2006-2013 Tobias Kuhn. All rights reserved.
+ * @copyright    Copyright (C) 2006-2015 Tobias Kuhn. All rights reserved.
  * @license      http://www.gnu.org/licenses/gpl.html GNU/GPL, see LICENSE.txt
  */
 
@@ -12,6 +12,7 @@ defined('_JEXEC') or die();
 
 
 jimport('joomla.application.component.modeladmin');
+JLoader::register('PFtasksHelperRoute', JPATH_SITE . '/components/com_pftasks/helpers/route.php');
 
 
 /**
@@ -139,6 +140,38 @@ class PFtasksModelTask extends JModelAdmin
         $data = (array) $db->loadColumn();
 
         return $data;
+    }
+
+
+    /**
+     * Returns the milestone id for each given task
+     *
+     * @param     array $pks    The tasks
+     *
+     * @return    array      The milestone ids
+     */
+    public function getMilestoneIds($pks)
+    {
+        if (!is_array($pks) || !count($pks)) {
+            return array();
+        }
+
+        $query = $this->_db->getQuery(true);
+
+        $query->select('id, milestone_id')
+              ->from('#__pf_tasks')
+              ->where('id IN(' . implode(', ', $pks) . ')');
+
+        try {
+            $this->_db->setQuery($query);
+            $items = $this->_db->loadAssocList('id', 'milestone_id');
+        }
+        catch (RuntimeException $e) {
+            $this->setError($e->getMessage());
+            return array();
+        }
+
+        return $items;
     }
 
 
@@ -420,6 +453,8 @@ class PFtasksModelTask extends JModelAdmin
                 $data['priority'] = 1;
             }
 
+
+
             // Bind the data.
             if (!$table->bind($data)) {
                 $this->setError($table->getError());
@@ -441,6 +476,13 @@ class PFtasksModelTask extends JModelAdmin
             if (in_array(false, $result, true)) {
                 $this->setError($table->getError());
                 return false;
+            }
+
+            JLoader::register('PFmilestonesModelMilestone', JPATH_ADMINISTRATOR . '/components/com_pfmilestones/models/milestone.php');
+            $ms_model = $this->getInstance('Milestone', 'PFmilestonesModel', array('ignore_request' => true));
+
+            if ($table->milestone_id > 0 && $table->complete == 1) {
+                $ms_progress_before = $ms_model->getProgress(array($table->milestone_id));
             }
 
             // Store the data.
@@ -471,12 +513,18 @@ class PFtasksModelTask extends JModelAdmin
                 JFactory::getApplication()->setUserState('com_projectfork.jform_rate', $data['rate']);
             }
 
-            // Add to watch list
+            // Add to watch list - if not opt-out
             if ($is_new) {
-                $cid = array($id);
+                $plugin  = JPluginHelper::getPlugin('content', 'pfnotifications');
+                $params  = new JRegistry($plugin->params);
+                $opt_out = (int) $params->get('sub_method', 0);
 
-                if (!$this->watch($cid, 1)) {
-                    return false;
+                if (!$opt_out) {
+                    $cid = array($id);
+
+                    if (!$this->watch($cid, 1)) {
+                        return false;
+                    }
                 }
             }
 
@@ -543,6 +591,18 @@ class PFtasksModelTask extends JModelAdmin
 
             // Trigger the onContentAfterSave event.
             $dispatcher->trigger($this->event_after_save, array($this->option . '.' . $this->name, &$table, $is_new));
+
+            // Trigger milestone complete event?
+            if ($table->milestone_id > 0 && $table->complete) {
+                $ms_progress_after = $ms_model->getProgress(array($table->milestone_id));
+
+                foreach ($ms_progress_before AS $mid => $progress)
+                {
+                    if ($progress != 100 && $ms_progress_after[$mid] == 100) {
+                        $dispatcher->trigger('onProjectforkComplete', array('com_pfmilestones.milestone', array($mid)));
+                    }
+                }
+            }
         }
         catch (Exception $e) {
             $this->setError($e->getMessage());
@@ -626,9 +686,53 @@ class PFtasksModelTask extends JModelAdmin
             }
         }
 
-        // Send email notification to assigned users
+
         if(count($mailto)) {
+            // Send email notification to assigned users
             $this->notifyAssignedUsers($mailto, $pk);
+
+            // Auto-subscribe users for future notifications
+            // Get the project id of the task first
+            $query->clear();
+            $query->select('project_id')
+                  ->from('#__pf_tasks')
+                  ->where('id = ' . (int) $pk);
+
+            $this->_db->setQuery($query);
+            $pid = (int) $this->_db->loadResult();
+
+            if (!$pid) return true;
+
+            // Get existing subscriptions
+            $query->clear();
+            $query->select('user_id')
+                  ->from('#__pf_ref_observer')
+                  ->where('item_type = ' . $this->_db->quote($item))
+                  ->where('item_id = ' . (int) $pk)
+                  ->order('user_id ASC');
+
+            $this->_db->setQuery($query);
+            $subs = (array) $this->_db->loadColumn();
+
+            JArrayHelper::toInteger($subs);
+
+            // Create dummy object
+            $obj = new stdClass();
+            $obj->user_id = 0;
+            $obj->item_type = $item;
+            $obj->item_id = (int) $pk;
+            $obj->project_id = $pid;
+
+            // Store each new subscription
+            foreach ($mailto AS $uid)
+            {
+                if (in_array($uid, $subs)) {
+                    continue;
+                }
+
+                $obj->user_id = $uid;
+                $this->_db->insertObject('#__pf_ref_observer', $obj);
+            }
         }
 
         return true;
@@ -772,6 +876,8 @@ class PFtasksModelTask extends JModelAdmin
 
         // Task link
         $link = JRoute::_(JURI::root() . PFtasksHelperRoute::getTaskRoute($task->id, $task->project_id, $task->milestone_id, $task->list_id));
+
+        $is_site = JFactory::getApplication()->isSite();
 
         // Send to each user...
         foreach ($uids AS $uid)

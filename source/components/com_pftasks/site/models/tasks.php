@@ -134,9 +134,23 @@ class PFtasksModelTasks extends JModelList
 
         // Filter by assigned user
         $assigned = $this->getState('filter.assigned');
-        if (is_numeric($assigned) && intval($assigned) != 0) {
-            $query->join('INNER', '#__pf_ref_users AS ru ON (ru.item_type = ' . $db->quote('com_pftasks.task') . ' AND ru.item_id = a.id)');
-            $query->where('ru.user_id = ' . (int) $assigned);
+
+        if (is_numeric($assigned)) {
+            $assigned = (int) $assigned;
+
+            if ($assigned) {
+                $query->join('INNER',
+                '#__pf_ref_users AS ru ON (ru.item_type = ' . $this->_db->quote('com_pftasks.task') . ' AND ru.item_id = a.id)'
+                );
+
+                $query->where('ru.user_id = '. (int) $assigned);
+            }
+            else {
+                $query->select('COUNT(ru.id) AS assignee_count')
+                      ->join('left', '#__pf_ref_users AS ru ON (ru.item_type = ' . $this->_db->quote('com_pftasks.task') . ' AND ru.item_id = a.id)')
+                      ->having('assignee_count = 0')
+                      ->group('a.id');
+            }
         }
 
         // Filter labels
@@ -173,6 +187,14 @@ class PFtasksModelTasks extends JModelList
         $order_col = $this->state->get('list.ordering', 'a.title');
         $order_dir = $this->state->get('list.direction', 'asc');
 
+        if ($order_col == '') {
+            $order_col = 'a.title';
+        }
+
+        if ($order_dir == '') {
+            $order_dir = 'asc';
+        }
+
         if ($order_col == 'a.title') {
             $order_col = 'tl.title, p.title, a.ordering ' . $order_dir . ', ' . $order_col;
         }
@@ -204,28 +226,7 @@ class PFtasksModelTasks extends JModelList
      */
     public function getItems()
     {
-        // Get a storage key.
-        $store = $this->getStoreId();
-
-        // Try to load the data from internal storage.
-        if (!isset($this->cache[$store])) {
-            // Load the list items.
-            $limit = ($this->getState('filter.project') ? 0 : $this->getState('list.limit'));
-            $query = $this->_getListQuery();
-            $items = $this->_getList($query, $this->getStart(), $limit);
-
-            // Check for a database error.
-            if ($this->_db->getErrorNum()) {
-                $this->setError($this->_db->getErrorMsg());
-                $this->cache[$store] = false;
-            }
-            else {
-                // Add the items to the internal cache.
-                $this->cache[$store] = $items;
-            }
-        }
-
-        $items  = $this->cache[$store];
+        $items  = parent::getItems();
         $ref    = JModelLegacy::getInstance('UserRefs', 'PFusersModel');
         $tref   = JModelLegacy::getInstance('TaskRefs', 'PFtasksModel');
         $labels = $this->getInstance('Labels', 'PFModel');
@@ -360,34 +361,6 @@ class PFtasksModelTasks extends JModelList
 
         return $cache[$key];
     }
-
-
-    /**
-     * Method to get a JPagination object for the data set.
-     *
-     * @return    jpagination    A JPagination object for the data set.
-     */
-    public function getPagination()
-    {
-        // Get a storage key.
-        $store = $this->getStoreId('getPagination');
-
-        // Try to load the data from internal storage.
-        if (isset($this->cache[$store])) {
-            return $this->cache[$store];
-        }
-
-        // Create the pagination object.
-        jimport('joomla.html.pagination');
-        $limit = (int) ($this->getState('filter.project') ? 0 : $this->getState('list.limit')) - (int) $this->getState('list.links');
-        $page  = new JPagination($this->getTotal(), $this->getStart(), $limit);
-
-        // Add the object to the internal cache.
-        $this->cache[$store] = $page;
-
-        return $this->cache[$store];
-    }
-
 
     /**
      * Build a list of project authors
@@ -572,6 +545,14 @@ class PFtasksModelTasks extends JModelList
         $query   = $this->_db->getQuery(true);
         $project = (int) $this->getState('filter.project');
 
+        $items = array();
+
+        $item = new stdClass();
+        $item->value = '0';
+        $item->text  = '* ' . JText::_('COM_PFTASKS_UNASSIGNED') . ' *';
+
+        $items[] = $item;
+
         // Return empty array if no project is select
         if ($project <= 0) {
             // Make an exception if we are logged in...
@@ -580,12 +561,10 @@ class PFtasksModelTasks extends JModelList
                 $item->value = $user->id;
                 $item->text  = $user->name;
 
-                $items = array($item);
-
-                return $items;
+                $items[] = $item;
             }
 
-            return array();
+            return $items;
         }
 
         // Construct the query
@@ -615,10 +594,9 @@ class PFtasksModelTasks extends JModelList
 
         // Get results
         $this->_db->setQuery($query);
-        $items = (array) $this->_db->loadObjectList();
 
         // Return the items
-        return $items;
+        return array_merge($items, (array) $this->_db->loadObjectList());
     }
 
 
@@ -636,17 +614,34 @@ class PFtasksModelTasks extends JModelList
 
         // Adjust the context to support modal layouts.
         $layout = JRequest::getCmd('layout');
+        $params  = $app->getParams();
+        $itemid  = $app->input->get('Itemid', 0, 'int');
+        $menu    = $app->getMenu()->getActive();
+
+        // Merge app params with menu item params
+		if ($menu) {
+		    $menu_params = new JRegistry();
+
+			$menu_params->loadString($menu->params);
+            $clone_params = clone $menu_params;
+            $clone_params->merge($params);
+
+            if (!$itemid) {
+                $itemid = (int) $menu->id;
+            }
+		}
 
         // View Layout
         $this->setState('layout', $layout);
-        if ($layout) $this->context .= '.' . $layout;
+        if ($layout && $layout != 'print') $this->context .= '.' . $layout;
 
-        // Params
-        $value = $app->getParams();
-        $this->setState('params', $value);
+        $this->context .= '.' . $itemid;
+
+        // Set Params
+        $this->setState('params', $params);
 
         // State
-        $state = $app->getUserStateFromRequest($this->context . '.filter.published', 'filter_published', '');
+        $state = $app->getUserStateFromRequest($this->context . '.filter.published', 'filter_published', $params->get('filter_published'));
         $this->setState('filter.published', $state);
 
         // Filter on published for those who do not have edit or edit.state rights.
@@ -722,6 +717,25 @@ class PFtasksModelTasks extends JModelList
             is_numeric($assigned) || (is_numeric($list) && $list > 0) || (is_numeric($milestone) && $milestone > 0) ||
             count($labels) || is_numeric($complete))
         );
+
+        // Set list limit
+        $cfg   = JFactory::getConfig();
+        $limit = $app->getUserStateFromRequest($this->context . '.list.limit', 'limit', $params->get('display_num', $cfg->get('list_limit')), 'uint');
+        $this->setState('list.limit', $limit);
+        $app->set('list_limit', $limit);
+        JRequest::setVar('list_limit', $limit);
+
+        // Set sorting order
+        $ordering = $app->getUserStateFromRequest($this->context . '.list.ordering', 'filter_order', $params->get('filter_order'));
+        $this->setState('list.ordering', $ordering);
+        $app->set('filter_order', $ordering);
+        JRequest::setVar('filter_order', $ordering);
+
+        // Set order direction
+        $direction = $app->getUserStateFromRequest($this->context . '.list.direction', 'filter_order_Dir', $params->get('filter_order_Dir'));
+        $this->setState('list.direction', $direction);
+        $app->set('filter_order_Dir', $direction);
+        JRequest::setVar('filter_order_Dir', $direction);
 
         // Call parent method
         parent::populateState($ordering, $direction);

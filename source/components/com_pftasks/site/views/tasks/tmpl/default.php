@@ -14,7 +14,6 @@ defined('_JEXEC') or die();
 JHtml::_('pfhtml.script.jquerysortable');
 JHtml::_('pfhtml.script.listform');
 JHtml::_('pfhtml.script.task');
-
 $list_order = $this->escape($this->state->get('list.ordering'));
 $list_dir   = $this->escape($this->state->get('list.direction'));
 $user       = JFactory::getUser();
@@ -41,19 +40,19 @@ $style = '.complete .task-title > a, .complete .task-description, .complete .car
         . 'margin: 0;'
         . '}'
         . '.priority-1 {'
-        . 'border-left:2px solid #CCC;'
+        . 'border-left:8px solid #CCC;'
         . '}'
         . '.priority-2 {'
-        . 'border-left:2px solid #468847;'
+        . 'border-left:8px solid #468847;'
         . '}'
         . '.priority-3 {'
-        . 'border-left:2px solid #3a87ad;'
+        . 'border-left:8px solid #3a87ad;'
         . '}'
         . '.priority-4 {'
-        . 'border-left:2px solid #c09853;'
+        . 'border-left:8px solid #c09853;'
         . '}'
         . '.priority-5 {'
-        . 'border-left:2px solid #b94a48;'
+        . 'border-left:8px solid #b94a48;'
         . '}'
         . '.list-striped .dropdown-menu li {'
         . 'background-color:transparent;'
@@ -65,6 +64,10 @@ $style = '.complete .task-title > a, .complete .task-description, .complete .car
         . 'margin: 2px 0;'
         . '}';
 $doc->addStyleDeclaration( $style );
+
+$print_url = PFtasksHelperRoute::getTasksRoute($this->state->get('filter.project'), $this->state->get('filter.milestone'), $this->state->get('filter.tasklist'))
+           . '&tmpl=component&layout=print';
+$print_opt = 'width=1024,height=600,resizable=yes,scrollbars=yes,toolbar=no,location=no,directories=no,status=no,menubar=no';
 ?>
 <script type="text/javascript">
 jQuery(document).ready(function() {
@@ -82,7 +85,7 @@ jQuery(document).ready(function() {
     <?php endif; ?>
 });
 </script>
-<div id="projectfork" class="category-list<?php echo $this->pageclass_sfx;?> view-tasks">
+<div id="projectfork" class="category-list<?php echo $this->pageclass_sfx;?> view-tasks PrintArea all">
 
     <?php if ($this->params->get('show_page_heading', 1)) : ?>
         <h1><?php echo $this->escape($this->params->get('page_heading')); ?></h1>
@@ -97,6 +100,9 @@ jQuery(document).ready(function() {
                 <div class="filter-project btn-group">
                     <?php echo JHtml::_('pfhtml.project.filter');?>
                 </div>
+				<a class="btn button" id="print_btn" href="javascript:void(0);" onclick="window.open('<?php echo JRoute::_($print_url);?>', 'print', '<?php echo $print_opt; ?>')">
+                    <?php echo JText::_('COM_PROJECTFORK_PRINT'); ?>
+                </a>
             </div>
 
             <div class="clearfix"> </div>
@@ -166,6 +172,18 @@ jQuery(document).ready(function() {
                         <select onchange="this.form.submit()" class="inputbox input-medium" name="filter_complete" id="filter_complete">
                             <option selected="selected" value=""><?php echo JText::_('JOPTION_SELECT_COMPLETITION');?></option>
                             <?php echo JHtml::_('select.options', JHtml::_('pftasks.completeOptions'), 'value', 'text', $this->state->get('filter.complete'), true);?>
+                        </select>
+                    </div>
+
+                    <div class="btn-group filter-order">
+                        <select name="filter_order" class="inputbox input-small" onchange="this.form.submit()">
+                            <?php echo JHtml::_('select.options', $this->sort_options, 'value', 'text', $list_order, true);?>
+                        </select>
+                    </div>
+
+                    <div class="btn-group folder-order-dir">
+                        <select name="filter_order_Dir" class="inputbox input-small" onchange="this.form.submit()">
+                            <?php echo JHtml::_('select.options', $this->order_options, 'value', 'text', $list_dir, true);?>
                         </select>
                     </div>
 
@@ -389,18 +407,14 @@ jQuery(document).ready(function() {
                 </p>
             <?php endif; ?>
 
-            <?php if (!$this->state->get('filter.project')) : ?>
-                <div class="filters center">
-                    <span class="display-limit">
-                        <?php echo $this->pagination->getLimitBox(); ?>
-                    </span>
-                </div>
-            <?php endif; ?>
+            <div class="filters center">
+                <span class="display-limit">
+                    <?php echo $this->pagination->getLimitBox(); ?>
+                </span>
+            </div>
 
             <input type="hidden" id="boxchecked" name="boxchecked" value="0" />
             <input type="hidden" id="target-item" name="target_item" value="0" />
-            <input type="hidden" name="filter_order" value="<?php echo $list_order; ?>" />
-            <input type="hidden" name="filter_order_Dir" value="<?php echo $list_dir; ?>" />
             <input type="hidden" name="task" value="" />
             <?php echo JHtml::_('form.token'); ?>
         </form>

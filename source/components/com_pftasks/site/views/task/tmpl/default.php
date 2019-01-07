@@ -40,7 +40,6 @@ $canEditOwn	= ($user->authorise('core.edit.own', $asset_name) && $this->item->cr
     <?php echo $item->event->beforeDisplayContent;?>
 
 	<div class="item-description">
-		<?php echo $item->text; ?>
 
         <dl class="article-info dl-horizontal pull-right">
     		<dt class="project-title">
@@ -89,6 +88,14 @@ $canEditOwn	= ($user->authorise('core.edit.own', $asset_name) && $this->item->cr
     		<dd class="owner-data">
     			 <?php echo JHtml::_('pfhtml.label.author', $item->author, $item->created); ?>
     		</dd>
+			<?php if ($item->users) : ?>
+            <dt class="assigned-title">
+    			<?php echo JText::_('COM_PROJECTFORK_FIELDSET_ASSIGNED_USERS');?>:
+    		</dt>			
+    		<dd class="assigned-data">
+    			 <?php echo JHtml::_('pftasks.assignedLabel', $item->id, $item->id, $item->users); ?>
+    		</dd>
+			<?php endif; ?>
             <?php if (PFApplicationHelper::enabled('com_pfrepo') && count($item->attachments)) : ?>
                 <dt class="attachment-title">
         			<?php echo JText::_('COM_PROJECTFORK_FIELDSET_ATTACHMENTS'); ?>:
@@ -97,7 +104,16 @@ $canEditOwn	= ($user->authorise('core.edit.own', $asset_name) && $this->item->cr
                      <?php echo JHtml::_('pfrepo.attachments', $item->attachments); ?>
         		</dd>
             <?php endif; ?>
+			<?php if ($item->labels) : ?>
+				<dt class="labels-title">
+					<?php echo JText::_('COM_PROJECTFORK_FIELDSET_PROJECT_LABELS'); ?>:
+				</dt>
+				<dd class="labels-data">
+					<?php echo JHtml::_('pfhtml.label.labels', $item->labels); ?>
+				</dd>
+			<?php endif; ?>
     	</dl>
+        <?php echo $item->text; ?>
         <div class="clearfix"></div>
 	</div>
 
